@@ -10,7 +10,7 @@
             window.alert('The room is full, please choose another room.');
             return;
         }
-        var username = 'user' + (userNumber + 1);
+        var username = 'user' + Math.floor(Math.random() * 1000);
         socket.emit('JoinRoom', roomName, username);
     });
 
