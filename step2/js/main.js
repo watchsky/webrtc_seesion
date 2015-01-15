@@ -1,5 +1,9 @@
 (function () {
     navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+    RTCPeerConnection = webkitRTCPeerConnection || mozRTCPeerConnection;
+    RTCSessionDescription = RTCSessionDescription || mozRTCSessionDescription;
+    RTCIceCandidate = RTCIceCandidate || mozRTCIceCandidate;
+
     var MAX_MEMBERS_FOR_EVERY_ROOM = 4;
     var startBtn = document.getElementById('btn_start');
     var quitBtn = document.getElementById('btn_quit');
@@ -120,7 +124,7 @@ PeerConnectionManager.prototype.createAnswerForUser = function (username, messag
 function Peer(username, pcManager) {
     this.username = username;
     this.pcManager = pcManager;
-    this.peerConnection = new webkitRTCPeerConnection(null);
+    this.peerConnection = new RTCPeerConnection(null);
     this.configPeerConnection();
 }
 

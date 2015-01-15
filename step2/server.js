@@ -19,7 +19,7 @@ var httpServer = http.createServer(function (req, res) {
     render(req.url, contentType, res);
 
     console.log('Request: ' + req.url);
-}).listen(8888, '127.0.0.1');
+}).listen(8888);
 
 var webrtcServer = new WebRTCServer();
 webrtcServer.listen(httpServer);
