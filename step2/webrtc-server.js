@@ -12,13 +12,15 @@ WebRTCServer.prototype.listen = function (httpServer) {
     var io = socketIO.listen(httpServer);
     io.sockets.on('connection', function (socket){
 
-        socket.on('GetUserNumbersOfRoom', function (roomName) {
+        socket.on('GetRoomStatus', function (roomName, callback) {
             var room = self.getRoom(roomName);
-            var userNumber = room ? room.getUsers().length : 0;
-            socket.emit('ReturnUserNumber', roomName, userNumber);
+            var currentUserCount = room ? room.getUsers().length : 0;
+            if (typeof callback === 'function') {
+                callback({currentUserCount: currentUserCount, isRoomFull: currentUserCount >= self.MAX_MEMBERS_FOR_EVERY_ROOM});
+            }
         });
 
-        socket.on('JoinRoom', function (roomName, username) {
+        socket.on('JoinRoom', function (roomName, username, callback) {
             var room = self.getRoom(roomName);
             if (room !== null) {
                 room.addUser(username, socket);
@@ -27,22 +29,40 @@ WebRTCServer.prototype.listen = function (httpServer) {
                 newRoom.addUser(username, socket);
                 self.addRoom(newRoom);
             }
-            socket.emit('JoinRoomSuccessfully', roomName, username);
+            typeof callback === 'function' && callback();
         });
 
-        socket.on('SendMessage', function (message, fromUser, toUser, roomName) {
+        socket.on('SendRequestMedia', function (fromUser, roomName) {
             var room = self.getRoom(roomName);
-            if (room === null) return;
-
-            if (toUser === "_all") {
+            if (room !== null) {
                 var users = room.getUsers();
                 for (var i = 0; i < users.length; i++) {
-                    if (users[i].username === fromUser) continue;
-                    users[i].socket.emit("Message", message, fromUser);
+                    if (users[i].username !== fromUser) users[i].socket.emit("RequestMedia", fromUser);
                 }
-            } else {
+            }
+        });
+
+        socket.on('SendOffer', function (offer, fromUser, toUser, roomName) {
+            var room = self.getRoom(roomName);
+            if (room !== null) {
                 var user = room.getUser(toUser);
-                if (user !== null) user.socket.emit("Message", message, fromUser);
+                if (user !== null) user.socket.emit("Offer", offer, fromUser);
+            }
+        });
+
+        socket.on('SendAnswer', function (answer, fromUser, toUser, roomName) {
+            var room = self.getRoom(roomName);
+            if (room !== null) {
+                var user = room.getUser(toUser);
+                if (user !== null) user.socket.emit("Answer", answer, fromUser);
+            }
+        });
+
+        socket.on('SendCandidate', function (candidate, fromUser, toUser, roomName) {
+            var room = self.getRoom(roomName);
+            if (room !== null) {
+                var user = room.getUser(toUser);
+                if (user !== null) user.socket.emit("Candidate", candidate, fromUser);
             }
         });
 

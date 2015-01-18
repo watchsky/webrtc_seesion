@@ -4,42 +4,28 @@
     RTCSessionDescription = RTCSessionDescription || mozRTCSessionDescription;
     RTCIceCandidate = RTCIceCandidate || mozRTCIceCandidate;
 
-    var MAX_MEMBERS_FOR_EVERY_ROOM = 4;
     var startBtn = document.getElementById('btn_start');
     var quitBtn = document.getElementById('btn_quit');
     var pcManager, socket = io.connect();
 
-    socket.on('ReturnUserNumber', function (roomName, userNumber) {
-        if (userNumber >= MAX_MEMBERS_FOR_EVERY_ROOM) {
-            window.alert('The room is full, please choose another room.');
-            return;
-        }
-        var username = 'user' + Math.floor(Math.random() * 1000);
-        socket.emit('JoinRoom', roomName, username);
+    socket.on('RequestMedia', function (fromUser) {
+        pcManager.createPeerConnectionForUser(fromUser);
+        pcManager.createOfferForUser(fromUser);
     });
 
-    socket.on('JoinRoomSuccessfully', function (roomName, username) {
-        var constraints = {video: true, audio: true};
-        pcManager = new PeerConnectionManager(roomName, username, socket);
-        navigator.getUserMedia(constraints, pcManager.handleUserMedia.bind(pcManager), pcManager.handleUserMediaError);
+    socket.on('Offer', function (offer, fromUser) {
+        pcManager.createPeerConnectionForUser(fromUser);
+        pcManager.createAnswerForUser(fromUser, offer);
     });
 
-    socket.on('Message', function (message, fromUser) {
-        if (message.type === 'RequestMedia') {
-            pcManager.createPeerConnectionForUser(fromUser);
-            pcManager.createOfferForUser(fromUser);
-        } else if (message.type === 'offer') {
-            pcManager.createPeerConnectionForUser(fromUser);
-            pcManager.createAnswerForUser(fromUser, message);
-        } else if (message.type === 'answer') {
-            pcManager.getPeer(fromUser).peerConnection.setRemoteDescription(new RTCSessionDescription(message));
-        } else if (message.type === 'candidate') {
-            var candidate = new RTCIceCandidate({
-                sdpMLineIndex: message.label,
-                candidate: message.candidate
-            });
-            pcManager.getPeer(fromUser).peerConnection.addIceCandidate(candidate);
-        }
+    socket.on('Answer', function (answer, fromUser) {
+        var peer = pcManager.getPeer(fromUser);
+        peer && peer.peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    });
+
+    socket.on('Candidate', function (candidate, fromUser) {
+        var candidate = new RTCIceCandidate(candidate), peer = pcManager.getPeer(fromUser);
+        peer && peer.peerConnection.addIceCandidate(candidate);
     });
 
     socket.on('SomeoneHasLeft', function (username) {
@@ -50,7 +36,19 @@
 
     startBtn.onclick = function () {
         var room = document.getElementById('room').value.trim();
-        if (room !== '') socket.emit('GetUserNumbersOfRoom', room);
+        if (room === '') return;
+        socket.emit('GetRoomStatus', room, function (roomStatus) {
+            if (!roomStatus.isRoomFull) {
+                var username = 'user' + Math.floor(Math.random() * 1000);
+                socket.emit('JoinRoom', room, username, function () {
+                    var constraints = {video: true, audio: true};
+                    pcManager = new PeerConnectionManager(room, username, socket);
+                    navigator.getUserMedia(constraints, pcManager.handleUserMedia.bind(pcManager), pcManager.handleUserMediaError);
+                });
+            } else {
+                window.alert('The room is full, please choose another room.');
+            }
+        });
     };
 
     quitBtn.onclick = function () {
@@ -77,7 +75,7 @@ PeerConnectionManager.prototype.handleUserMedia = function (stream) {
     localVideo.src = window.URL.createObjectURL(stream);
     document.getElementById('container').appendChild(localVideo);
     this.localStream = stream;
-    this.socket.emit('SendMessage', {type: 'RequestMedia'}, this.host, '_all', this.room);
+    this.socket.emit('SendRequestMedia', this.host, this.room);
 };
 
 PeerConnectionManager.prototype.handleUserMediaError = function (error) {
@@ -136,20 +134,20 @@ Peer.prototype.configPeerConnection = function () {
 };
 
 Peer.prototype.createOffer = function () {
-    this.peerConnection.createOffer(this._setLocalAndSendMessage.bind(this), this._handleCreateOfferError);
+    this.peerConnection.createOffer(this._setLocalAndSendOffer.bind(this), this._handleCreateOfferError);
 };
 
 Peer.prototype.createAnswer = function () {
     var sdpConstraints = {'mandatory': {
         'OfferToReceiveAudio': true,
         'OfferToReceiveVideo': true }};
-    this.peerConnection.createAnswer(this._setLocalAndSendMessage.bind(this), null, sdpConstraints);
+    this.peerConnection.createAnswer(this._setLocalAndSendAnswer.bind(this), null, sdpConstraints);
 };
 
 Peer.prototype._handleIceCandidate = function (event) {
     if (event.candidate) {
-        var message = {type: 'candidate', label: event.candidate.sdpMLineIndex, id: event.candidate.sdpMid, candidate: event.candidate.candidate};
-        this.pcManager.socket.emit('SendMessage', message, this.pcManager.host, this.username, this.pcManager.room);
+        var candidate = {sdpMLineIndex: event.candidate.sdpMLineIndex, candidate: event.candidate.candidate};
+        this.pcManager.socket.emit('SendCandidate', candidate, this.pcManager.host, this.username, this.pcManager.room);
     } else {
         console.log('End of candidates.');
     }
@@ -172,9 +170,14 @@ Peer.prototype._handleRemoteStreamRemoved = function (event) {
     console.log('Remote stream removed. Event: ', event);
 };
 
-Peer.prototype._setLocalAndSendMessage = function (sessionDescription) {
+Peer.prototype._setLocalAndSendOffer = function (sessionDescription) {
     this.peerConnection.setLocalDescription(sessionDescription);
-    this.pcManager.socket.emit('SendMessage', sessionDescription, this.pcManager.host, this.username, this.pcManager.room);
+    this.pcManager.socket.emit('SendOffer', sessionDescription, this.pcManager.host, this.username, this.pcManager.room);
+};
+
+Peer.prototype._setLocalAndSendAnswer = function (sessionDescription) {
+    this.peerConnection.setLocalDescription(sessionDescription);
+    this.pcManager.socket.emit('SendAnswer', sessionDescription, this.pcManager.host, this.username, this.pcManager.room);
 };
 
 Peer.prototype._handleCreateOfferError = function (event) {
